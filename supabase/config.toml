@@ -20,4 +20,3 @@ port = 54323
 [functions]
   [functions.daily-scan]
     verify_jwt = false
-    schedule = "0 2 * * *"
