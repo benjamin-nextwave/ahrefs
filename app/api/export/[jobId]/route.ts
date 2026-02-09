@@ -142,7 +142,8 @@ async function exportBouwbedrijf(supabase: any, jobId: string, jobName: string) 
         top_competitor_traffic,
         top_competitor_ads_keywords,
         achievable_traffic,
-        content_gap_count
+        content_gap_count,
+        content_gap_keywords
       )
     `)
     .eq('job_id', jobId)
@@ -159,12 +160,14 @@ async function exportBouwbedrijf(supabase: any, jobId: string, jobName: string) 
   const columns = [
     'domain', 'status',
     'top_competitor', 'top_competitor_traffic', 'top_competitor_ads_keywords',
-    'achievable_traffic', 'content_gap_count',
+    'achievable_traffic', 'content_gap_count', 'content_gap_keywords',
   ]
 
   const csvData = (domains || []).map((domain: Record<string, unknown>) => {
     const metricsArray = domain.bouwbedrijf_metrics as Array<Record<string, unknown>> | null
     const metrics = metricsArray?.[0] || {}
+    const keywords = metrics.content_gap_keywords as Array<{ keyword: string; volume: number; difficulty: number; competitor_position: number }> | null
+    const keywordNames = keywords?.map(k => k.keyword).join(', ') ?? ''
     return {
       domain: domain.domain,
       status: domain.status,
@@ -173,6 +176,7 @@ async function exportBouwbedrijf(supabase: any, jobId: string, jobName: string) 
       top_competitor_ads_keywords: metrics.top_competitor_ads_keywords ?? '',
       achievable_traffic: metrics.achievable_traffic ?? '',
       content_gap_count: metrics.content_gap_count ?? '',
+      content_gap_keywords: keywordNames,
     }
   })
 
