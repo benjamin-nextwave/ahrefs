@@ -10,10 +10,10 @@ export async function GET(
     const { jobId } = await params
     const supabase = createAdminClient()
 
-    // Get job info
+    // Get job info including enrichment type
     const { data: job, error: jobError } = await supabase
       .from('scan_jobs')
-      .select('name')
+      .select('name, enrichment_type')
       .eq('id', jobId)
       .single()
 
@@ -24,67 +24,12 @@ export async function GET(
       )
     }
 
-    // Get all completed domains with metrics
-    const { data: domains, error: domainsError } = await supabase
-      .from('domains')
-      .select(`
-        domain,
-        scheduled_date,
-        status,
-        domain_metrics (
-          dr,
-          traffic,
-          refdomains,
-          backlinks,
-          keywords,
-          checked_at
-        )
-      `)
-      .eq('job_id', jobId)
-      .order('scheduled_date', { ascending: true })
+    const enrichmentType = job.enrichment_type || 'webshop'
 
-    if (domainsError) {
-      console.error('Failed to fetch domains:', domainsError)
-      return NextResponse.json(
-        { error: 'Failed to fetch domains' },
-        { status: 500 }
-      )
+    if (enrichmentType === 'bouwbedrijf') {
+      return exportBouwbedrijf(supabase, jobId, job.name)
     }
-
-    // Flatten the data for CSV export
-    const csvData = (domains || []).map((domain: Record<string, unknown>) => {
-      const metricsArray = domain.domain_metrics as Array<Record<string, unknown>> | null
-      const metrics = metricsArray?.[0] || {}
-      return {
-        domain: domain.domain,
-        status: domain.status,
-        scheduled_date: domain.scheduled_date,
-        dr: metrics.dr ?? '',
-        traffic: metrics.traffic ?? '',
-        refdomains: metrics.refdomains ?? '',
-        backlinks: metrics.backlinks ?? '',
-        keywords: metrics.keywords ?? '',
-        checked_at: metrics.checked_at ?? '',
-      }
-    })
-
-    // Generate CSV
-    const csv = Papa.unparse(csvData, {
-      header: true,
-      columns: ['domain', 'status', 'scheduled_date', 'dr', 'traffic', 'refdomains', 'backlinks', 'keywords', 'checked_at']
-    })
-
-    // Create filename
-    const safeName = String(job.name).replace(/[^a-z0-9]/gi, '_').toLowerCase()
-    const filename = `${safeName}_export_${new Date().toISOString().split('T')[0]}.csv`
-
-    // Return as downloadable file
-    return new NextResponse(csv, {
-      headers: {
-        'Content-Type': 'text/csv',
-        'Content-Disposition': `attachment; filename="${filename}"`,
-      },
-    })
+    return exportWebshop(supabase, jobId, job.name)
   } catch (error) {
     console.error('Export error:', error)
     return NextResponse.json(
@@ -92,4 +37,154 @@ export async function GET(
       { status: 500 }
     )
   }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function exportWebshop(supabase: any, jobId: string, jobName: string) {
+  const { data: domains, error: domainsError } = await supabase
+    .from('domains')
+    .select(`
+      domain,
+      status,
+      webshop_metrics (
+        organic_keywords_current,
+        organic_keywords_3m,
+        organic_keywords_6m,
+        organic_keywords_12m,
+        organic_keywords_24m,
+        organic_traffic_current,
+        organic_traffic_3m,
+        organic_traffic_6m,
+        organic_traffic_12m,
+        organic_traffic_24m,
+        paid_keywords_current,
+        paid_keywords_3m,
+        paid_keywords_6m,
+        paid_keywords_12m,
+        paid_keywords_24m,
+        paid_traffic_current,
+        paid_traffic_3m,
+        paid_traffic_6m,
+        paid_traffic_12m,
+        paid_traffic_24m
+      )
+    `)
+    .eq('job_id', jobId)
+    .order('scheduled_date', { ascending: true })
+
+  if (domainsError) {
+    console.error('Failed to fetch domains:', domainsError)
+    return NextResponse.json(
+      { error: 'Failed to fetch domains' },
+      { status: 500 }
+    )
+  }
+
+  const columns = [
+    'domain', 'status',
+    'organic_keywords_current', 'organic_keywords_3m', 'organic_keywords_6m', 'organic_keywords_12m', 'organic_keywords_24m',
+    'organic_traffic_current', 'organic_traffic_3m', 'organic_traffic_6m', 'organic_traffic_12m', 'organic_traffic_24m',
+    'paid_keywords_current', 'paid_keywords_3m', 'paid_keywords_6m', 'paid_keywords_12m', 'paid_keywords_24m',
+    'paid_traffic_current', 'paid_traffic_3m', 'paid_traffic_6m', 'paid_traffic_12m', 'paid_traffic_24m',
+  ]
+
+  const csvData = (domains || []).map((domain: Record<string, unknown>) => {
+    const metricsArray = domain.webshop_metrics as Array<Record<string, unknown>> | null
+    const metrics = metricsArray?.[0] || {}
+    return {
+      domain: domain.domain,
+      status: domain.status,
+      organic_keywords_current: metrics.organic_keywords_current ?? '',
+      organic_keywords_3m: metrics.organic_keywords_3m ?? '',
+      organic_keywords_6m: metrics.organic_keywords_6m ?? '',
+      organic_keywords_12m: metrics.organic_keywords_12m ?? '',
+      organic_keywords_24m: metrics.organic_keywords_24m ?? '',
+      organic_traffic_current: metrics.organic_traffic_current ?? '',
+      organic_traffic_3m: metrics.organic_traffic_3m ?? '',
+      organic_traffic_6m: metrics.organic_traffic_6m ?? '',
+      organic_traffic_12m: metrics.organic_traffic_12m ?? '',
+      organic_traffic_24m: metrics.organic_traffic_24m ?? '',
+      paid_keywords_current: metrics.paid_keywords_current ?? '',
+      paid_keywords_3m: metrics.paid_keywords_3m ?? '',
+      paid_keywords_6m: metrics.paid_keywords_6m ?? '',
+      paid_keywords_12m: metrics.paid_keywords_12m ?? '',
+      paid_keywords_24m: metrics.paid_keywords_24m ?? '',
+      paid_traffic_current: metrics.paid_traffic_current ?? '',
+      paid_traffic_3m: metrics.paid_traffic_3m ?? '',
+      paid_traffic_6m: metrics.paid_traffic_6m ?? '',
+      paid_traffic_12m: metrics.paid_traffic_12m ?? '',
+      paid_traffic_24m: metrics.paid_traffic_24m ?? '',
+    }
+  })
+
+  const csv = Papa.unparse(csvData, { header: true, columns })
+
+  const safeName = String(jobName).replace(/[^a-z0-9]/gi, '_').toLowerCase()
+  const filename = `${safeName}_webshop_export_${new Date().toISOString().split('T')[0]}.csv`
+
+  return new NextResponse(csv, {
+    headers: {
+      'Content-Type': 'text/csv',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+    },
+  })
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function exportBouwbedrijf(supabase: any, jobId: string, jobName: string) {
+  const { data: domains, error: domainsError } = await supabase
+    .from('domains')
+    .select(`
+      domain,
+      status,
+      bouwbedrijf_metrics (
+        top_competitor,
+        top_competitor_traffic,
+        top_competitor_ads_keywords,
+        achievable_traffic,
+        content_gap_count
+      )
+    `)
+    .eq('job_id', jobId)
+    .order('scheduled_date', { ascending: true })
+
+  if (domainsError) {
+    console.error('Failed to fetch domains:', domainsError)
+    return NextResponse.json(
+      { error: 'Failed to fetch domains' },
+      { status: 500 }
+    )
+  }
+
+  const columns = [
+    'domain', 'status',
+    'top_competitor', 'top_competitor_traffic', 'top_competitor_ads_keywords',
+    'achievable_traffic', 'content_gap_count',
+  ]
+
+  const csvData = (domains || []).map((domain: Record<string, unknown>) => {
+    const metricsArray = domain.bouwbedrijf_metrics as Array<Record<string, unknown>> | null
+    const metrics = metricsArray?.[0] || {}
+    return {
+      domain: domain.domain,
+      status: domain.status,
+      top_competitor: metrics.top_competitor ?? '',
+      top_competitor_traffic: metrics.top_competitor_traffic ?? '',
+      top_competitor_ads_keywords: metrics.top_competitor_ads_keywords ?? '',
+      achievable_traffic: metrics.achievable_traffic ?? '',
+      content_gap_count: metrics.content_gap_count ?? '',
+    }
+  })
+
+  const csv = Papa.unparse(csvData, { header: true, columns })
+
+  const safeName = String(jobName).replace(/[^a-z0-9]/gi, '_').toLowerCase()
+  const filename = `${safeName}_bouwbedrijf_export_${new Date().toISOString().split('T')[0]}.csv`
+
+  return new NextResponse(csv, {
+    headers: {
+      'Content-Type': 'text/csv',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+    },
+  })
 }

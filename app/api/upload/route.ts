@@ -8,6 +8,7 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData()
     const file = formData.get('file') as File | null
     const jobName = formData.get('name') as string | null
+    const enrichmentType = (formData.get('enrichment_type') as string) || 'webshop'
 
     if (!file) {
       return NextResponse.json(
@@ -47,6 +48,7 @@ export async function POST(request: NextRequest) {
         name: jobName,
         total_domains: domains.length,
         status: 'pending',
+        enrichment_type: enrichmentType,
         start_date: formatDate(startDate),
         end_date: formatDate(endDate),
       })

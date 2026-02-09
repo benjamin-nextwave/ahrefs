@@ -9,6 +9,7 @@ interface UploadFormProps {
 export default function UploadForm({ onUploadSuccess }: UploadFormProps) {
   const [file, setFile] = useState<File | null>(null)
   const [jobName, setJobName] = useState('')
+  const [enrichmentType, setEnrichmentType] = useState<'webshop' | 'bouwbedrijf'>('webshop')
   const [isDragging, setIsDragging] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -63,6 +64,7 @@ export default function UploadForm({ onUploadSuccess }: UploadFormProps) {
       const formData = new FormData()
       formData.append('file', file)
       formData.append('name', jobName.trim())
+      formData.append('enrichment_type', enrichmentType)
 
       const response = await fetch('/api/upload', {
         method: 'POST',
@@ -86,6 +88,7 @@ export default function UploadForm({ onUploadSuccess }: UploadFormProps) {
       // Reset form and notify parent
       setFile(null)
       setJobName('')
+      setEnrichmentType('webshop')
       onUploadSuccess()
     } catch {
       setError('Failed to upload file. Please try again.')
@@ -112,6 +115,42 @@ export default function UploadForm({ onUploadSuccess }: UploadFormProps) {
             className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
             required
           />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Enrichment Type
+          </label>
+          <div className="flex gap-4">
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="enrichmentType"
+                value="webshop"
+                checked={enrichmentType === 'webshop'}
+                onChange={() => setEnrichmentType('webshop')}
+                className="mt-1"
+              />
+              <div>
+                <div className="text-sm font-medium text-gray-900">Webshops</div>
+                <div className="text-xs text-gray-500">Traffic & keyword decline analysis</div>
+              </div>
+            </label>
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="enrichmentType"
+                value="bouwbedrijf"
+                checked={enrichmentType === 'bouwbedrijf'}
+                onChange={() => setEnrichmentType('bouwbedrijf')}
+                className="mt-1"
+              />
+              <div>
+                <div className="text-sm font-medium text-gray-900">Bouwbedrijven</div>
+                <div className="text-xs text-gray-500">Competitor & content gap analysis</div>
+              </div>
+            </label>
+          </div>
         </div>
 
         <div

@@ -9,6 +9,7 @@ interface ScanJob {
   name: string
   total_domains: number
   status: string
+  enrichment_type: 'webshop' | 'bouwbedrijf'
   start_date: string
   end_date: string
   created_at: string
@@ -127,6 +128,13 @@ export default function JobsList({ refreshTrigger }: JobsListProps) {
               <div className="flex-1">
                 <div className="flex items-center gap-3">
                   <h3 className="font-medium text-gray-900">{job.name}</h3>
+                  <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                    job.enrichment_type === 'bouwbedrijf'
+                      ? 'bg-orange-100 text-orange-800'
+                      : 'bg-purple-100 text-purple-800'
+                  }`}>
+                    {job.enrichment_type === 'bouwbedrijf' ? 'Bouwbedrijf' : 'Webshop'}
+                  </span>
                   <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(job.status)}`}>
                     {job.status}
                   </span>
