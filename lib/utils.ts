@@ -12,6 +12,7 @@ export function parseCSV(csvContent: string): ParsedCSV {
   const result = Papa.parse(csvContent, {
     header: true,
     skipEmptyLines: true,
+    delimiter: ',',
     transformHeader: (header) => header.toLowerCase().trim(),
   })
 
