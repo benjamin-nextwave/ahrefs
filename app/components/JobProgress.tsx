@@ -1,5 +1,11 @@
 'use client'
 
+interface TodayStats {
+  scheduled: number
+  completed: number
+  processing: number
+}
+
 interface JobProgressProps {
   stats: {
     completed: number
@@ -8,9 +14,10 @@ interface JobProgressProps {
     pending: number
     total: number
   }
+  todayStats?: TodayStats
 }
 
-export default function JobProgress({ stats }: JobProgressProps) {
+export default function JobProgress({ stats, todayStats }: JobProgressProps) {
   const { completed, failed, processing, total } = stats
 
   const completedPercent = total > 0 ? (completed / total) * 100 : 0
@@ -47,6 +54,18 @@ export default function JobProgress({ stats }: JobProgressProps) {
       {processing > 0 && (
         <div className="text-xs text-blue-600">
           {processing} domain{processing > 1 ? 's' : ''} currently processing...
+        </div>
+      )}
+
+      {todayStats && todayStats.scheduled > 0 && (
+        <div className="flex items-center gap-2 text-xs text-gray-600">
+          <span>Today: {todayStats.completed}/{todayStats.scheduled} completed</span>
+          {todayStats.processing > 0 && (
+            <span className="flex items-center gap-1 text-blue-600">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+              {todayStats.processing} processing...
+            </span>
+          )}
         </div>
       )}
     </div>

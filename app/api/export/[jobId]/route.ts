@@ -25,11 +25,12 @@ export async function GET(
     }
 
     const enrichmentType = job.enrichment_type || 'webshop'
+    const completedOnly = request.nextUrl.searchParams.get('completed_only') === 'true'
 
     if (enrichmentType === 'bouwbedrijf') {
-      return exportBouwbedrijf(supabase, jobId, job.name)
+      return exportBouwbedrijf(supabase, jobId, job.name, completedOnly)
     }
-    return exportWebshop(supabase, jobId, job.name)
+    return exportWebshop(supabase, jobId, job.name, completedOnly)
   } catch (error) {
     console.error('Export error:', error)
     return NextResponse.json(
@@ -40,8 +41,8 @@ export async function GET(
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function exportWebshop(supabase: any, jobId: string, jobName: string) {
-  const { data: domains, error: domainsError } = await supabase
+async function exportWebshop(supabase: any, jobId: string, jobName: string, completedOnly: boolean) {
+  let query = supabase
     .from('domains')
     .select(`
       domain,
@@ -70,6 +71,10 @@ async function exportWebshop(supabase: any, jobId: string, jobName: string) {
       )
     `)
     .eq('job_id', jobId)
+  if (completedOnly) {
+    query = query.eq('status', 'completed')
+  }
+  const { data: domains, error: domainsError } = await query
     .order('scheduled_date', { ascending: true })
 
   if (domainsError) {
@@ -131,8 +136,8 @@ async function exportWebshop(supabase: any, jobId: string, jobName: string) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function exportBouwbedrijf(supabase: any, jobId: string, jobName: string) {
-  const { data: domains, error: domainsError } = await supabase
+async function exportBouwbedrijf(supabase: any, jobId: string, jobName: string, completedOnly: boolean) {
+  let query = supabase
     .from('domains')
     .select(`
       domain,
@@ -147,6 +152,10 @@ async function exportBouwbedrijf(supabase: any, jobId: string, jobName: string) 
       )
     `)
     .eq('job_id', jobId)
+  if (completedOnly) {
+    query = query.eq('status', 'completed')
+  }
+  const { data: domains, error: domainsError } = await query
     .order('scheduled_date', { ascending: true })
 
   if (domainsError) {

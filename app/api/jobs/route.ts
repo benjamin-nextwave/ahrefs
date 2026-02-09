@@ -22,12 +22,14 @@ export async function GET() {
       )
     }
 
+    const today = new Date().toISOString().split('T')[0]
+
     // Get completion stats for each job
     const jobsWithStats = await Promise.all(
       (jobs || []).map(async (job) => {
         const { data: domains } = await supabase
           .from('domains')
-          .select('status')
+          .select('status, scheduled_date')
           .eq('job_id', job.id)
 
         const domainList = domains || []
@@ -35,6 +37,13 @@ export async function GET() {
         const failed = domainList.filter(d => d.status === 'failed').length
         const processing = domainList.filter(d => d.status === 'processing').length
         const pending = domainList.filter(d => d.status === 'pending').length
+
+        const todayDomains = domainList.filter(d => d.scheduled_date === today)
+        const todayStats = {
+          scheduled: todayDomains.length,
+          completed: todayDomains.filter(d => d.status === 'completed').length,
+          processing: todayDomains.filter(d => d.status === 'processing').length,
+        }
 
         return {
           ...job,
@@ -44,7 +53,8 @@ export async function GET() {
             processing,
             pending,
             total: job.total_domains,
-          }
+          },
+          today_stats: todayStats,
         }
       })
     )

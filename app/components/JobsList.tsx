@@ -24,6 +24,11 @@ interface JobWithStats extends ScanJob {
     pending: number
     total: number
   }
+  today_stats?: {
+    scheduled: number
+    completed: number
+    processing: number
+  }
 }
 
 interface JobsListProps {
@@ -145,7 +150,7 @@ export default function JobsList({ refreshTrigger }: JobsListProps) {
                 </div>
 
                 <div className="mt-3">
-                  <JobProgress stats={job.stats} />
+                  <JobProgress stats={job.stats} todayStats={job.today_stats} />
                 </div>
               </div>
 
