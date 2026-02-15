@@ -41,13 +41,22 @@ export async function POST(request: NextRequest) {
 
     const supabase = createAdminClient()
 
+    // Check how many jobs are currently active (pending or running)
+    const { data: activeJobs } = await supabase
+      .from('scan_jobs')
+      .select('id')
+      .in('status', ['pending', 'running'])
+
+    const activeCount = activeJobs?.length || 0
+    const jobStatus = activeCount >= 2 ? 'queued' : 'pending'
+
     // Create the scan job
     const { data: job, error: jobError } = await supabase
       .from('scan_jobs')
       .insert({
         name: jobName,
         total_domains: domains.length,
-        status: 'pending',
+        status: jobStatus,
         enrichment_type: enrichmentType,
         start_date: formatDate(startDate),
         end_date: formatDate(endDate),
@@ -91,6 +100,7 @@ export async function POST(request: NextRequest) {
       totalDomains: domains.length,
       startDate: formatDate(startDate),
       endDate: formatDate(endDate),
+      queued: jobStatus === 'queued',
       warnings: errors.length > 0 ? errors : undefined,
     })
   } catch (error) {

@@ -188,6 +188,11 @@ async function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
+// ─── Constants ──
+
+const MAX_CONCURRENT_JOBS = 2
+const DAILY_SCRAPE_LIMIT = 50
+
 // ─── Main handler ──
 
 Deno.serve(async (req) => {
@@ -217,53 +222,115 @@ Deno.serve(async (req) => {
         .eq('status', 'processing')
     }
 
-    // Get all pending domains scheduled for today
-    const { data: domains, error: fetchError } = await supabase
-      .from('domains')
-      .select('id, domain, job_id, retry_count')
-      .eq('scheduled_date', today)
-      .eq('status', 'pending')
+    // Get active jobs (pending or running) - max 2 at a time
+    const { data: activeJobs } = await supabase
+      .from('scan_jobs')
+      .select('id, enrichment_type, status')
+      .in('status', ['pending', 'running'])
       .order('created_at', { ascending: true })
+      .limit(MAX_CONCURRENT_JOBS)
 
-    if (fetchError) {
-      throw new Error(`Failed to fetch domains: ${fetchError.message}`)
+    if (!activeJobs || activeJobs.length === 0) {
+      console.log('No active jobs found')
+
+      // Check if there are queued jobs to promote
+      await promoteQueuedJobs(supabase)
+
+      return new Response(
+        JSON.stringify({ message: 'No active jobs', processed: 0 }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
     }
 
-    if (!domains || domains.length === 0) {
+    const activeJobIds = activeJobs.map(j => j.id)
+    console.log(`Active jobs: ${activeJobIds.length}`)
+
+    // Build enrichment map
+    const jobEnrichmentMap: Record<string, string> = {}
+    for (const job of activeJobs) {
+      jobEnrichmentMap[job.id] = job.enrichment_type || 'webshop'
+    }
+
+    // Count remaining pending domains per active job (any scheduled_date <= today)
+    const remainingPerJob: Record<string, number> = {}
+    for (const jobId of activeJobIds) {
+      const { count } = await supabase
+        .from('domains')
+        .select('id', { count: 'exact', head: true })
+        .eq('job_id', jobId)
+        .eq('status', 'pending')
+        .lte('scheduled_date', today)
+
+      remainingPerJob[jobId] = count || 0
+    }
+
+    console.log(`Remaining domains per job: ${JSON.stringify(remainingPerJob)}`)
+
+    // Dynamic quota allocation: split DAILY_SCRAPE_LIMIT between active jobs
+    const quotaPerJob = allocateQuotas(activeJobIds, remainingPerJob, DAILY_SCRAPE_LIMIT)
+    console.log(`Quota allocation: ${JSON.stringify(quotaPerJob)}`)
+
+    // Fetch domains for each job up to its quota
+    interface DomainRecord {
+      id: string
+      domain: string
+      job_id: string
+      retry_count: number
+    }
+    const domainsToProcess: DomainRecord[] = []
+
+    for (const jobId of activeJobIds) {
+      const quota = quotaPerJob[jobId]
+      if (quota <= 0) continue
+
+      const { data: jobDomains, error: fetchError } = await supabase
+        .from('domains')
+        .select('id, domain, job_id, retry_count')
+        .eq('job_id', jobId)
+        .eq('status', 'pending')
+        .lte('scheduled_date', today)
+        .order('scheduled_date', { ascending: true })
+        .order('created_at', { ascending: true })
+        .limit(quota)
+
+      if (fetchError) {
+        console.error(`Failed to fetch domains for job ${jobId}: ${fetchError.message}`)
+        continue
+      }
+
+      if (jobDomains && jobDomains.length > 0) {
+        domainsToProcess.push(...jobDomains)
+      }
+    }
+
+    if (domainsToProcess.length === 0) {
       console.log('No domains to process today')
+
+      // Check for job completion and promote queued jobs
+      await checkJobCompletionAndPromote(supabase, activeJobIds)
+
       return new Response(
         JSON.stringify({ message: 'No domains to process today', processed: 0 }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
 
-    console.log(`Found ${domains.length} domains to process`)
+    console.log(`Processing ${domainsToProcess.length} domains across ${activeJobIds.length} jobs`)
 
-    // Get enrichment types for all jobs involved
-    const jobIds = [...new Set(domains.map((d: { job_id: string }) => d.job_id))]
-
-    const { data: jobs } = await supabase
-      .from('scan_jobs')
-      .select('id, enrichment_type')
-      .in('id', jobIds)
-
-    const jobEnrichmentMap: Record<string, string> = {}
-    for (const job of (jobs || [])) {
-      jobEnrichmentMap[job.id] = job.enrichment_type || 'webshop'
-    }
-
-    // Update job status to running
+    // Update active job statuses to running
     await supabase
       .from('scan_jobs')
       .update({ status: 'running', updated_at: new Date().toISOString() })
-      .in('id', jobIds)
+      .in('id', activeJobIds)
 
     let processed = 0
     let failed = 0
     const maxRetries = 3
     const rateLimitDelay = 2000 // 2 seconds between API calls
 
-    for (const domain of domains) {
+    for (let i = 0; i < domainsToProcess.length; i++) {
+      const domain = domainsToProcess[i]
+
       try {
         // Mark as processing
         await supabase
@@ -276,7 +343,6 @@ Deno.serve(async (req) => {
         const enrichmentType = jobEnrichmentMap[domain.job_id] || 'webshop'
 
         if (enrichmentType === 'webshop') {
-          // Webshop: get monthly organic + paid traffic history
           const trafficHistory = await getWebshopTrafficHistory(domain.domain)
 
           const { error: metricsError } = await supabase
@@ -293,7 +359,6 @@ Deno.serve(async (req) => {
           console.log(`  Saved ${trafficHistory.length} months of traffic data`)
 
         } else if (enrichmentType === 'bouwbedrijf') {
-          // Bouwbedrijf: get organic keywords
           const keywordData = await getBouwbedrijfKeywords(domain.domain)
 
           const { error: metricsError } = await supabase
@@ -349,34 +414,13 @@ Deno.serve(async (req) => {
       }
 
       // Rate limiting between API calls
-      if (domains.indexOf(domain) < domains.length - 1) {
+      if (i < domainsToProcess.length - 1) {
         await sleep(rateLimitDelay)
       }
     }
 
-    // Check if all domains in each job are done
-    for (const jobId of jobIds) {
-      const { data: jobDomains } = await supabase
-        .from('domains')
-        .select('status')
-        .eq('job_id', jobId)
-
-      if (jobDomains) {
-        const allDone = jobDomains.every((d: { status: string }) =>
-          d.status === 'completed' || d.status === 'failed'
-        )
-
-        if (allDone) {
-          await supabase
-            .from('scan_jobs')
-            .update({
-              status: 'completed',
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', jobId)
-        }
-      }
-    }
+    // Check job completion and promote queued jobs
+    await checkJobCompletionAndPromote(supabase, activeJobIds)
 
     console.log(`Daily scan complete. Processed: ${processed}, Failed: ${failed}`)
 
@@ -386,7 +430,7 @@ Deno.serve(async (req) => {
         date: today,
         processed,
         failed,
-        total: domains.length
+        total: domainsToProcess.length
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
@@ -399,3 +443,123 @@ Deno.serve(async (req) => {
     )
   }
 })
+
+// ─── Quota allocation ──
+// Dynamically splits DAILY_SCRAPE_LIMIT between active jobs.
+// If one job has fewer remaining domains than its equal share,
+// the surplus goes to the other job.
+
+function allocateQuotas(
+  jobIds: string[],
+  remainingPerJob: Record<string, number>,
+  totalLimit: number
+): Record<string, number> {
+  const quotas: Record<string, number> = {}
+
+  if (jobIds.length === 0) return quotas
+  if (jobIds.length === 1) {
+    quotas[jobIds[0]] = Math.min(remainingPerJob[jobIds[0]] || 0, totalLimit)
+    return quotas
+  }
+
+  // Start with equal split
+  const equalShare = Math.floor(totalLimit / jobIds.length)
+  let surplus = 0
+
+  // First pass: assign equal share or remaining count (whichever is smaller)
+  for (const jobId of jobIds) {
+    const remaining = remainingPerJob[jobId] || 0
+    if (remaining < equalShare) {
+      quotas[jobId] = remaining
+      surplus += equalShare - remaining
+    } else {
+      quotas[jobId] = equalShare
+    }
+  }
+
+  // Second pass: distribute surplus to jobs that can use more
+  if (surplus > 0) {
+    for (const jobId of jobIds) {
+      const remaining = remainingPerJob[jobId] || 0
+      const currentQuota = quotas[jobId]
+      const canTakeMore = remaining - currentQuota
+      if (canTakeMore > 0) {
+        const extra = Math.min(canTakeMore, surplus)
+        quotas[jobId] += extra
+        surplus -= extra
+      }
+    }
+  }
+
+  return quotas
+}
+
+// ─── Job completion check and queue promotion ──
+
+async function checkJobCompletionAndPromote(
+  supabase: ReturnType<typeof createClient>,
+  activeJobIds: string[]
+) {
+  for (const jobId of activeJobIds) {
+    const { data: jobDomains } = await supabase
+      .from('domains')
+      .select('status')
+      .eq('job_id', jobId)
+
+    if (jobDomains) {
+      const allDone = jobDomains.every((d: { status: string }) =>
+        d.status === 'completed' || d.status === 'failed'
+      )
+
+      if (allDone) {
+        await supabase
+          .from('scan_jobs')
+          .update({
+            status: 'completed',
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', jobId)
+
+        console.log(`Job ${jobId} completed. Checking queue...`)
+      }
+    }
+  }
+
+  // Promote queued jobs if there are now open slots
+  await promoteQueuedJobs(supabase)
+}
+
+async function promoteQueuedJobs(supabase: ReturnType<typeof createClient>) {
+  // Count currently active jobs
+  const { data: currentActive } = await supabase
+    .from('scan_jobs')
+    .select('id')
+    .in('status', ['pending', 'running'])
+
+  const activeCount = currentActive?.length || 0
+  const slotsAvailable = MAX_CONCURRENT_JOBS - activeCount
+
+  if (slotsAvailable <= 0) return
+
+  // Get oldest queued jobs to promote
+  const { data: queuedJobs } = await supabase
+    .from('scan_jobs')
+    .select('id, name')
+    .eq('status', 'queued')
+    .order('created_at', { ascending: true })
+    .limit(slotsAvailable)
+
+  if (!queuedJobs || queuedJobs.length === 0) return
+
+  for (const job of queuedJobs) {
+    await supabase
+      .from('scan_jobs')
+      .update({
+        status: 'pending',
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', job.id)
+
+    console.log(`Promoted queued job "${job.name}" (${job.id}) to pending`)
+  }
+}

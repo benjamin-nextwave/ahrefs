@@ -14,7 +14,7 @@ export function formatDate(date: Date): string {
 }
 
 export function scheduleDomains(domains: string[], startDate: Date): ScheduledDomain[] {
-  const MAX_PER_DAY = 100
+  const MAX_PER_DAY = 50
   const DAYS = 14
 
   if (domains.length === 0) {
@@ -35,7 +35,7 @@ export function scheduleDomains(domains: string[], startDate: Date): ScheduledDo
 }
 
 export function calculateEndDate(domains: string[], startDate: Date): Date {
-  const MAX_PER_DAY = 100
+  const MAX_PER_DAY = 50
   const DAYS = 14
 
   if (domains.length === 0) {

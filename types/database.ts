@@ -30,7 +30,7 @@ export type Database = {
           id: string
           name: string
           total_domains: number
-          status: 'pending' | 'running' | 'completed' | 'failed'
+          status: 'pending' | 'running' | 'completed' | 'failed' | 'queued'
           enrichment_type: EnrichmentType
           start_date: string
           end_date: string
