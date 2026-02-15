@@ -2,6 +2,20 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import Papa from 'papaparse'
 
+interface TrafficHistoryEntry {
+  date: string
+  organic_traffic: number
+  paid_traffic: number
+}
+
+interface OrganicKeyword {
+  keyword: string
+  volume: number
+  traffic: number
+  position: number
+  difficulty: number
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ jobId: string }> }
@@ -48,26 +62,7 @@ async function exportWebshop(supabase: any, jobId: string, jobName: string, comp
       domain,
       status,
       webshop_metrics (
-        organic_keywords_current,
-        organic_keywords_3m,
-        organic_keywords_6m,
-        organic_keywords_12m,
-        organic_keywords_24m,
-        organic_traffic_current,
-        organic_traffic_3m,
-        organic_traffic_6m,
-        organic_traffic_12m,
-        organic_traffic_24m,
-        paid_keywords_current,
-        paid_keywords_3m,
-        paid_keywords_6m,
-        paid_keywords_12m,
-        paid_keywords_24m,
-        paid_traffic_current,
-        paid_traffic_3m,
-        paid_traffic_6m,
-        paid_traffic_12m,
-        paid_traffic_24m
+        traffic_history
       )
     `)
     .eq('job_id', jobId)
@@ -85,41 +80,56 @@ async function exportWebshop(supabase: any, jobId: string, jobName: string, comp
     )
   }
 
+  // Collect all unique months across all domains to build dynamic columns
+  const allMonths = new Set<string>()
+  for (const domain of (domains || [])) {
+    const metricsArray = domain.webshop_metrics as Array<{ traffic_history: TrafficHistoryEntry[] }> | null
+    const metrics = metricsArray?.[0]
+    if (metrics?.traffic_history) {
+      for (const entry of metrics.traffic_history) {
+        allMonths.add(entry.date)
+      }
+    }
+  }
+
+  // Sort months chronologically
+  const sortedMonths = Array.from(allMonths).sort()
+
+  // Build columns: domain, status, then organic_traffic_YYYY-MM and paid_traffic_YYYY-MM for each month
   const columns = [
     'domain', 'status',
-    'organic_keywords_current', 'organic_keywords_3m', 'organic_keywords_6m', 'organic_keywords_12m', 'organic_keywords_24m',
-    'organic_traffic_current', 'organic_traffic_3m', 'organic_traffic_6m', 'organic_traffic_12m', 'organic_traffic_24m',
-    'paid_keywords_current', 'paid_keywords_3m', 'paid_keywords_6m', 'paid_keywords_12m', 'paid_keywords_24m',
-    'paid_traffic_current', 'paid_traffic_3m', 'paid_traffic_6m', 'paid_traffic_12m', 'paid_traffic_24m',
+    ...sortedMonths.map(m => `organic_traffic_${m}`),
+    ...sortedMonths.map(m => `paid_traffic_${m}`),
   ]
 
   const csvData = (domains || []).map((domain: Record<string, unknown>) => {
-    const metricsArray = domain.webshop_metrics as Array<Record<string, unknown>> | null
-    const metrics = metricsArray?.[0] || {}
-    return {
+    const metricsArray = domain.webshop_metrics as Array<{ traffic_history: TrafficHistoryEntry[] }> | null
+    const metrics = metricsArray?.[0]
+
+    // Build a lookup from date to traffic values
+    const trafficByMonth: Record<string, TrafficHistoryEntry> = {}
+    if (metrics?.traffic_history) {
+      for (const entry of metrics.traffic_history) {
+        trafficByMonth[entry.date] = entry
+      }
+    }
+
+    const row: Record<string, unknown> = {
       domain: domain.domain,
       status: domain.status,
-      organic_keywords_current: metrics.organic_keywords_current ?? '',
-      organic_keywords_3m: metrics.organic_keywords_3m ?? '',
-      organic_keywords_6m: metrics.organic_keywords_6m ?? '',
-      organic_keywords_12m: metrics.organic_keywords_12m ?? '',
-      organic_keywords_24m: metrics.organic_keywords_24m ?? '',
-      organic_traffic_current: metrics.organic_traffic_current ?? '',
-      organic_traffic_3m: metrics.organic_traffic_3m ?? '',
-      organic_traffic_6m: metrics.organic_traffic_6m ?? '',
-      organic_traffic_12m: metrics.organic_traffic_12m ?? '',
-      organic_traffic_24m: metrics.organic_traffic_24m ?? '',
-      paid_keywords_current: metrics.paid_keywords_current ?? '',
-      paid_keywords_3m: metrics.paid_keywords_3m ?? '',
-      paid_keywords_6m: metrics.paid_keywords_6m ?? '',
-      paid_keywords_12m: metrics.paid_keywords_12m ?? '',
-      paid_keywords_24m: metrics.paid_keywords_24m ?? '',
-      paid_traffic_current: metrics.paid_traffic_current ?? '',
-      paid_traffic_3m: metrics.paid_traffic_3m ?? '',
-      paid_traffic_6m: metrics.paid_traffic_6m ?? '',
-      paid_traffic_12m: metrics.paid_traffic_12m ?? '',
-      paid_traffic_24m: metrics.paid_traffic_24m ?? '',
     }
+
+    // Add organic traffic columns
+    for (const month of sortedMonths) {
+      row[`organic_traffic_${month}`] = trafficByMonth[month]?.organic_traffic ?? ''
+    }
+
+    // Add paid traffic columns
+    for (const month of sortedMonths) {
+      row[`paid_traffic_${month}`] = trafficByMonth[month]?.paid_traffic ?? ''
+    }
+
+    return row
   })
 
   const csv = Papa.unparse(csvData, { header: true, columns })
@@ -143,12 +153,9 @@ async function exportBouwbedrijf(supabase: any, jobId: string, jobName: string, 
       domain,
       status,
       bouwbedrijf_metrics (
-        top_competitor,
-        top_competitor_traffic,
-        top_competitor_ads_keywords,
-        achievable_traffic,
-        content_gap_count,
-        content_gap_keywords
+        keywords,
+        total_keywords,
+        total_traffic
       )
     `)
     .eq('job_id', jobId)
@@ -167,25 +174,31 @@ async function exportBouwbedrijf(supabase: any, jobId: string, jobName: string, 
   }
 
   const columns = [
-    'domain', 'status',
-    'top_competitor', 'top_competitor_traffic', 'top_competitor_ads_keywords',
-    'achievable_traffic', 'content_gap_count', 'content_gap_keywords',
+    'domain', 'status', 'total_keywords', 'total_traffic',
+    'top_keywords',
   ]
 
   const csvData = (domains || []).map((domain: Record<string, unknown>) => {
-    const metricsArray = domain.bouwbedrijf_metrics as Array<Record<string, unknown>> | null
-    const metrics = metricsArray?.[0] || {}
-    const keywords = metrics.content_gap_keywords as Array<{ keyword: string; volume: number; difficulty: number; competitor_position: number }> | null
-    const keywordNames = keywords?.map(k => k.keyword).join(', ') ?? ''
+    const metricsArray = domain.bouwbedrijf_metrics as Array<{
+      keywords: OrganicKeyword[]
+      total_keywords: number
+      total_traffic: number
+    }> | null
+    const metrics = metricsArray?.[0]
+
+    // Format top keywords as readable string: "keyword (vol:X, pos:Y)"
+    const keywordsList = metrics?.keywords || []
+    const topKeywords = keywordsList
+      .slice(0, 20)
+      .map((k: OrganicKeyword) => `${k.keyword} (vol:${k.volume}, pos:${k.position})`)
+      .join('; ')
+
     return {
       domain: domain.domain,
       status: domain.status,
-      top_competitor: metrics.top_competitor ?? '',
-      top_competitor_traffic: metrics.top_competitor_traffic ?? '',
-      top_competitor_ads_keywords: metrics.top_competitor_ads_keywords ?? '',
-      achievable_traffic: metrics.achievable_traffic ?? '',
-      content_gap_count: metrics.content_gap_count ?? '',
-      content_gap_keywords: keywordNames,
+      total_keywords: metrics?.total_keywords ?? '',
+      total_traffic: metrics?.total_traffic ?? '',
+      top_keywords: topKeywords,
     }
   })
 

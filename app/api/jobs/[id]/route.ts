@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+export const fetchCache = 'force-no-store'
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -9,7 +13,6 @@ export async function GET(
     const { id } = await params
     const supabase = createAdminClient()
 
-    // Get job details
     const { data: job, error: jobError } = await supabase
       .from('scan_jobs')
       .select('*')
@@ -23,13 +26,19 @@ export async function GET(
       )
     }
 
-    // Get all domains with their metrics
+    const enrichmentType = job.enrichment_type || 'webshop'
+
+    // Fetch domains with the correct metrics join
+    let selectQuery = '*, domain_metrics (*)'
+    if (enrichmentType === 'webshop') {
+      selectQuery = '*, webshop_metrics (traffic_history)'
+    } else if (enrichmentType === 'bouwbedrijf') {
+      selectQuery = '*, bouwbedrijf_metrics (keywords, total_keywords, total_traffic)'
+    }
+
     const { data: domains, error: domainsError } = await supabase
       .from('domains')
-      .select(`
-        *,
-        domain_metrics (*)
-      `)
+      .select(selectQuery)
       .eq('job_id', id)
       .order('scheduled_date', { ascending: true })
 
@@ -41,20 +50,20 @@ export async function GET(
       )
     }
 
-    const domainList = domains || []
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const domainList: any[] = domains || []
 
-    // Calculate stats
     const stats = {
-      completed: domainList.filter(d => d.status === 'completed').length,
-      failed: domainList.filter(d => d.status === 'failed').length,
-      processing: domainList.filter(d => d.status === 'processing').length,
-      pending: domainList.filter(d => d.status === 'pending').length,
+      completed: domainList.filter((d: { status: string }) => d.status === 'completed').length,
+      failed: domainList.filter((d: { status: string }) => d.status === 'failed').length,
+      processing: domainList.filter((d: { status: string }) => d.status === 'processing').length,
+      pending: domainList.filter((d: { status: string }) => d.status === 'pending').length,
       total: job.total_domains,
     }
 
     // Group domains by scheduled date
-    type DomainRecord = typeof domainList[number]
-    const byDate: Record<string, DomainRecord[]> = {}
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const byDate: Record<string, any[]> = {}
     domainList.forEach(domain => {
       const date = domain.scheduled_date
       if (!byDate[date]) {

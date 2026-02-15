@@ -8,6 +8,20 @@ export type Json =
 
 export type EnrichmentType = 'webshop' | 'bouwbedrijf'
 
+export interface TrafficHistoryEntry {
+  date: string
+  organic_traffic: number
+  paid_traffic: number
+}
+
+export interface OrganicKeyword {
+  keyword: string
+  volume: number
+  traffic: number
+  position: number
+  difficulty: number
+}
+
 export type Database = {
   public: {
     Tables: {
@@ -114,76 +128,19 @@ export type Database = {
         Row: {
           id: string
           domain_id: string
-          organic_keywords_current: number | null
-          organic_keywords_3m: number | null
-          organic_keywords_6m: number | null
-          organic_keywords_12m: number | null
-          organic_keywords_24m: number | null
-          organic_traffic_current: number | null
-          organic_traffic_3m: number | null
-          organic_traffic_6m: number | null
-          organic_traffic_12m: number | null
-          organic_traffic_24m: number | null
-          paid_keywords_current: number | null
-          paid_keywords_3m: number | null
-          paid_keywords_6m: number | null
-          paid_keywords_12m: number | null
-          paid_keywords_24m: number | null
-          paid_traffic_current: number | null
-          paid_traffic_3m: number | null
-          paid_traffic_6m: number | null
-          paid_traffic_12m: number | null
-          paid_traffic_24m: number | null
+          traffic_history: TrafficHistoryEntry[]
           checked_at: string
         }
         Insert: {
           id?: string
           domain_id: string
-          organic_keywords_current?: number | null
-          organic_keywords_3m?: number | null
-          organic_keywords_6m?: number | null
-          organic_keywords_12m?: number | null
-          organic_keywords_24m?: number | null
-          organic_traffic_current?: number | null
-          organic_traffic_3m?: number | null
-          organic_traffic_6m?: number | null
-          organic_traffic_12m?: number | null
-          organic_traffic_24m?: number | null
-          paid_keywords_current?: number | null
-          paid_keywords_3m?: number | null
-          paid_keywords_6m?: number | null
-          paid_keywords_12m?: number | null
-          paid_keywords_24m?: number | null
-          paid_traffic_current?: number | null
-          paid_traffic_3m?: number | null
-          paid_traffic_6m?: number | null
-          paid_traffic_12m?: number | null
-          paid_traffic_24m?: number | null
+          traffic_history: TrafficHistoryEntry[]
           checked_at?: string
         }
         Update: {
           id?: string
           domain_id?: string
-          organic_keywords_current?: number | null
-          organic_keywords_3m?: number | null
-          organic_keywords_6m?: number | null
-          organic_keywords_12m?: number | null
-          organic_keywords_24m?: number | null
-          organic_traffic_current?: number | null
-          organic_traffic_3m?: number | null
-          organic_traffic_6m?: number | null
-          organic_traffic_12m?: number | null
-          organic_traffic_24m?: number | null
-          paid_keywords_current?: number | null
-          paid_keywords_3m?: number | null
-          paid_keywords_6m?: number | null
-          paid_keywords_12m?: number | null
-          paid_keywords_24m?: number | null
-          paid_traffic_current?: number | null
-          paid_traffic_3m?: number | null
-          paid_traffic_6m?: number | null
-          paid_traffic_12m?: number | null
-          paid_traffic_24m?: number | null
+          traffic_history?: TrafficHistoryEntry[]
           checked_at?: string
         }
       }
@@ -191,34 +148,25 @@ export type Database = {
         Row: {
           id: string
           domain_id: string
-          top_competitor: string | null
-          top_competitor_traffic: number | null
-          top_competitor_ads_keywords: number | null
-          achievable_traffic: number | null
-          content_gap_count: number | null
-          content_gap_keywords: Json | null
+          keywords: OrganicKeyword[]
+          total_keywords: number
+          total_traffic: number
           checked_at: string
         }
         Insert: {
           id?: string
           domain_id: string
-          top_competitor?: string | null
-          top_competitor_traffic?: number | null
-          top_competitor_ads_keywords?: number | null
-          achievable_traffic?: number | null
-          content_gap_count?: number | null
-          content_gap_keywords?: Json | null
+          keywords?: OrganicKeyword[]
+          total_keywords?: number
+          total_traffic?: number
           checked_at?: string
         }
         Update: {
           id?: string
           domain_id?: string
-          top_competitor?: string | null
-          top_competitor_traffic?: number | null
-          top_competitor_ads_keywords?: number | null
-          achievable_traffic?: number | null
-          content_gap_count?: number | null
-          content_gap_keywords?: Json | null
+          keywords?: OrganicKeyword[]
+          total_keywords?: number
+          total_traffic?: number
           checked_at?: string
         }
       }
