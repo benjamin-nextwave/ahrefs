@@ -210,6 +210,7 @@ function isWorkingDay(): boolean {
 
 const MAX_CONCURRENT_JOBS = 2
 const DAILY_SCRAPE_LIMIT = 50
+const BATCH_SIZE = 4 // Domains per invocation (keeps runtime under edge function timeout)
 
 // ─── Main handler ──
 
@@ -233,7 +234,35 @@ Deno.serve(async (req) => {
     }
 
     const today = new Date().toISOString().split('T')[0]
-    console.log(`Starting daily Ahrefs scan for ${today}`)
+    const todayStart = `${today}T00:00:00.000Z`
+    console.log(`Starting batch scan for ${today}`)
+
+    // Count how many domains have already been scraped today (across all jobs)
+    // by checking metrics tables for entries created today
+    const { count: webshopToday } = await supabase
+      .from('webshop_metrics')
+      .select('id', { count: 'exact', head: true })
+      .gte('checked_at', todayStart)
+
+    const { count: bouwbedrijfToday } = await supabase
+      .from('bouwbedrijf_metrics')
+      .select('id', { count: 'exact', head: true })
+      .gte('checked_at', todayStart)
+
+    const scrapedToday = (webshopToday || 0) + (bouwbedrijfToday || 0)
+    const remainingBudget = DAILY_SCRAPE_LIMIT - scrapedToday
+
+    console.log(`Scraped today: ${scrapedToday}/${DAILY_SCRAPE_LIMIT}, remaining budget: ${remainingBudget}`)
+
+    if (remainingBudget <= 0) {
+      console.log('Daily scrape limit reached')
+      return new Response(
+        JSON.stringify({ message: 'Daily limit reached', scrapedToday, limit: DAILY_SCRAPE_LIMIT }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    const batchSize = Math.min(BATCH_SIZE, remainingBudget)
 
     // Reset any domains stuck in 'processing' from a previous timed-out run
     const { data: stuckDomains } = await supabase
@@ -270,7 +299,7 @@ Deno.serve(async (req) => {
     }
 
     const activeJobIds = activeJobs.map(j => j.id)
-    console.log(`Active jobs: ${activeJobIds.length}`)
+    console.log(`Active jobs: ${activeJobIds.length}, batch size: ${batchSize}`)
 
     // Build enrichment map
     const jobEnrichmentMap: Record<string, string> = {}
@@ -293,9 +322,9 @@ Deno.serve(async (req) => {
 
     console.log(`Remaining domains per job: ${JSON.stringify(remainingPerJob)}`)
 
-    // Dynamic quota allocation: split DAILY_SCRAPE_LIMIT between active jobs
-    const quotaPerJob = allocateQuotas(activeJobIds, remainingPerJob, DAILY_SCRAPE_LIMIT)
-    console.log(`Quota allocation: ${JSON.stringify(quotaPerJob)}`)
+    // Dynamic quota allocation: split this batch's budget between active jobs
+    const quotaPerJob = allocateQuotas(activeJobIds, remainingPerJob, batchSize)
+    console.log(`Batch quota allocation: ${JSON.stringify(quotaPerJob)}`)
 
     // Fetch domains for each job up to its quota
     interface DomainRecord {
@@ -331,18 +360,18 @@ Deno.serve(async (req) => {
     }
 
     if (domainsToProcess.length === 0) {
-      console.log('No domains to process today')
+      console.log('No domains to process in this batch')
 
       // Check for job completion and promote queued jobs
       await checkJobCompletionAndPromote(supabase, activeJobIds)
 
       return new Response(
-        JSON.stringify({ message: 'No domains to process today', processed: 0 }),
+        JSON.stringify({ message: 'No domains to process', processed: 0 }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
 
-    console.log(`Processing ${domainsToProcess.length} domains across ${activeJobIds.length} jobs`)
+    console.log(`Processing batch of ${domainsToProcess.length} domains across ${activeJobIds.length} jobs`)
 
     // Update active job statuses to running
     await supabase
