@@ -188,6 +188,24 @@ async function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
+// Random delay between 45 seconds and 2 minutes
+function randomDelay(): number {
+  const minMs = 45 * 1000   // 45 seconds
+  const maxMs = 120 * 1000  // 2 minutes
+  return Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs
+}
+
+// Check if today is a working day (Mon-Fri) in Amsterdam timezone
+function isWorkingDay(): boolean {
+  const now = new Date()
+  // Get Amsterdam day of week using Intl
+  const amsterdamDay = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Europe/Amsterdam',
+    weekday: 'short',
+  }).format(now)
+  return !['Sat', 'Sun'].includes(amsterdamDay)
+}
+
 // ─── Constants ──
 
 const MAX_CONCURRENT_JOBS = 2
@@ -204,6 +222,15 @@ Deno.serve(async (req) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     const supabase = createClient(supabaseUrl, supabaseKey)
+
+    // Only run on working days (Mon-Fri Amsterdam time)
+    if (!isWorkingDay()) {
+      console.log('Skipping scan: not a working day in Amsterdam')
+      return new Response(
+        JSON.stringify({ message: 'Skipped: not a working day', processed: 0 }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
 
     const today = new Date().toISOString().split('T')[0]
     console.log(`Starting daily Ahrefs scan for ${today}`)
@@ -326,7 +353,6 @@ Deno.serve(async (req) => {
     let processed = 0
     let failed = 0
     const maxRetries = 3
-    const rateLimitDelay = 2000 // 2 seconds between API calls
 
     for (let i = 0; i < domainsToProcess.length; i++) {
       const domain = domainsToProcess[i]
@@ -413,9 +439,11 @@ Deno.serve(async (req) => {
         }
       }
 
-      // Rate limiting between API calls
+      // Random delay between scrapes (45s - 2min) to appear natural
       if (i < domainsToProcess.length - 1) {
-        await sleep(rateLimitDelay)
+        const delay = randomDelay()
+        console.log(`  Waiting ${Math.round(delay / 1000)}s before next scrape...`)
+        await sleep(delay)
       }
     }
 
