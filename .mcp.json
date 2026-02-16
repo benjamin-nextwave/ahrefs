@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "ahrefs": {
+      "command": "npx",
+      "args": ["@ahrefs/mcp"],
+      "env": {
+        "API_KEY": "uzXj.MbAOsd7LEWgStWIpQOSh6Tp5QzBMNHZnbFlLa0RZY2Z4WVlYd3V1WEhWOWR2NWZkc2Z2ZXNQWXJJRGl0eXdZV3NUSWp4MmNra3FveHQ2ZlQ0azJJTVAzTWcxYm9JVTZwUzJESFZWMXdQQVdRUHhTU2UrenVWdnhNb1N5eklpUWo0aXhpYlpzY25zZ3M.pV3U"
+      }
+    }
+  }
+}
